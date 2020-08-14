@@ -3,11 +3,13 @@ import os
 import sys
 import tempfile
 import re
-import cocotb
+import cocotb            # type: ignore
 import logging
 import shutil
 from xml.etree import cElementTree as ET
 import signal
+from typing import List, Union, Optional
+from pathlib import Path
 
 from distutils.spawn import find_executable
 from distutils.sysconfig import get_config_var
@@ -16,7 +18,13 @@ _magic_re = re.compile(r"([\\{}])")
 _space_re = re.compile(r"([\s])", re.ASCII)
 
 
-def as_tcl_value(value):
+# ==============================================================================================================
+# common functions
+def as_tcl_value(value: str):
+    r"""Utility to escape all `\` and space characters.
+
+    :param value: string with character to escape.
+    """
     # add '\' before special characters and spaces
     value = _magic_re.sub(r"\\\1", value)
     value = value.replace("\n", r"\n")
@@ -27,31 +35,64 @@ def as_tcl_value(value):
     return value
 
 
-class Simulator(object):
-    def __init__(
-        self,
-        toplevel,
-        module,
-        work_dir=None,
-        python_search=None,
-        toplevel_lang="verilog",
-        verilog_sources=None,
-        vhdl_sources=None,
-        includes=None,
-        defines=None,
-        compile_args=None,
-        simulation_args=None,
-        extra_args=None,
-        plus_args=None,
-        force_compile=False,
-        testcase=None,
-        sim_build="sim_build",
-        seed=None,
-        extra_env=None,
-        compile_only=False,
-        gui=False,
-        **kwargs
-    ):
+def add_args(list_args: List[Union[str, List[str]]]) -> str:
+    """Concatenate the given arguments and turn any string list in a space-separated string.
+
+    :param list_args: list of arguments for the output command.
+    """
+
+    out_cmd = ''
+    for arg in list_args:
+        if isinstance(arg, str):
+            out_cmd += arg + ' '
+        else:
+            for inner_arg in arg:
+                out_cmd += inner_arg + ' '
+    # remove any trailing space character
+    return out_cmd.strip()
+
+
+def get_abs_paths(paths: Optional[List[Union[str, Path]]]) -> List[Union[str, Path]]:
+    """Extract the absolute path from the given sources (if any).
+
+    :param paths: list of source paths, if empty this functions does nothing.
+    """
+
+    if paths is None:
+        return []
+
+    paths_abs = []
+    for path in paths:
+        paths_abs.append(as_tcl_value(str(Path(path).absolute())))
+
+    return paths_abs
+
+
+# ==============================================================================================================
+# simulators
+class Simulator():
+    def __init__(self,
+                 toplevel: str,
+                 module: str,
+                 work_dir: Union[None, str] = None,
+                 python_search: Optional[List[Union[str, Path]]] = None,
+                 toplevel_lang: str = "verilog",
+                 verilog_sources: Optional[List[Union[str, Path]]] = None,
+                 vhdl_sources: Optional[List[Union[str, Path]]] = None,
+                 includes=None,
+                 defines=None,
+                 compile_args=None,
+                 simulation_args=None,
+                 extra_args=None,
+                 plus_args=None,
+                 force_compile=False,
+                 testcase=None,
+                 sim_build="sim_build",
+                 seed=None,
+                 extra_env=None,
+                 compile_only=False,
+                 gui=False,
+                 **kwargs):
 
         self.sim_dir = os.path.join(os.getcwd(), sim_build)
         if not os.path.exists(self.sim_dir):
@@ -87,17 +128,17 @@ class Simulator(object):
         if verilog_sources is None:
             verilog_sources = []
 
-        self.verilog_sources = self.get_abs_paths(verilog_sources)
+        self.verilog_sources = get_abs_paths(verilog_sources)
 
         if vhdl_sources is None:
             vhdl_sources = []
 
-        self.vhdl_sources = self.get_abs_paths(vhdl_sources)
+        self.vhdl_sources = get_abs_paths(vhdl_sources)
 
         if includes is None:
             includes = []
 
-        self.includes = self.get_abs_paths(includes)
+        self.includes = get_abs_paths(includes)
 
         if defines is None:
             defines = []
@@ -153,7 +194,7 @@ class Simulator(object):
 
         self.env["PYTHONPATH"] = os.pathsep.join(sys.path)
         for path in self.python_search:
-            self.env["PYTHONPATH"] += os.pathsep + path
+            self.env["PYTHONPATH"] += os.pathsep + str(path)
 
         self.env["PYTHONHOME"] = get_config_var("prefix")
 
@@ -172,7 +213,7 @@ class Simulator(object):
 
         # use temporary results file
         if not os.getenv("COCOTB_RESULTS_FILE"):
-            tmp_results_file = tempfile.NamedTemporaryFile(prefix=self.sim_dir + os.path.sep, suffix="_results.xml")
+            tmp_results_file = tempfile.NamedTemporaryFile(suffix="_results.xml", dir=self.sim_dir)
             results_xml_file = tmp_results_file.name
             tmp_results_file.close()
             self.env["COCOTB_RESULTS_FILE"] = results_xml_file
@@ -192,8 +233,7 @@ class Simulator(object):
                 for tc in ts.iter("testcase"):
                     for failure in tc.iter("failure"):
                         assert False, '{} class="{}" test="{}" error={}'.format(
-                            failure.get("message"), tc.get("classname"), tc.get("name"), failure.get("stdout"),
-                        )
+                            failure.get("message"), tc.get("classname"), tc.get("name"), failure.get("stdout"))
 
         print("Results file: %s" % results_xml_file)
         return results_xml_file
@@ -204,24 +244,13 @@ class Simulator(object):
     def get_define_commands(self, defines):
         raise NotImplementedError()
 
-    def get_abs_paths(self, paths):
-        paths_abs = []
-        for path in paths:
-            if os.path.isabs(path):
-                paths_abs.append(os.path.abspath(path))
-            else:
-                paths_abs.append(os.path.abspath(os.path.join(os.getcwd(), path)))
-
-        return paths_abs
-
     def execute(self, cmds):
         self.set_env()
         for cmd in cmds:
             self.logger.info("Running command: " + " ".join(cmd))
 
             self.process = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=self.work_dir, env=self.env
-            )
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=self.work_dir, env=self.env)
 
             while True:
                 out = self.process.stdout.readline()
@@ -237,12 +266,6 @@ class Simulator(object):
                 self.logger.error("Command terminated with error %d" % self.process.returncode)
                 return
 
-    # def execute(self, cmds):
-    #     self.set_env()
-    #     for cmd in cmds:
-    #         print(" ".join(cmd))
-    #         process = subprocess.check_call(cmd, cwd=self.work_dir, env=self.env)
-
     def outdated(self, output, dependencies):
 
         if not os.path.isfile(output):
@@ -251,8 +274,8 @@ class Simulator(object):
         output_mtime = os.path.getmtime(output)
 
         dep_mtime = 0
-        for file in dependencies:
-            mtime = os.path.getmtime(file)
+        for dependency in dependencies:
+            mtime = os.path.getmtime(dependency)
             if mtime > dep_mtime:
                 dep_mtime = mtime
 
@@ -271,7 +294,7 @@ class Simulator(object):
         # Restore previous handlers
         signal.signal(signal.SIGINT, self.old_sigint_h)
         signal.signal(signal.SIGTERM, self.old_sigterm_h)
-        assert False, "Exiting pid: {} with signum: {}".format(str(pid), str(signum))
+        assert False, f"Exiting pid: {pid} with signum: {signum}"
 
 
 class Icarus(Simulator):
@@ -336,8 +359,8 @@ class Icarus(Simulator):
 class Questa(Simulator):
     def get_include_commands(self, includes):
         include_cmd = []
-        for dir in includes:
-            include_cmd.append("+incdir+" + as_tcl_value(dir))
+        for incdir in includes:
+            include_cmd.append("+incdir+" + as_tcl_value(incdir))
 
         return include_cmd
 
@@ -358,60 +381,56 @@ class Questa(Simulator):
 
         if self.outdated(out_file, self.verilog_sources + self.vhdl_sources) or self.force_compile:
 
+            cmd_prefix = ["vsim", "-c", "-do"]
+            cmd_create_lib = "vlib " + self.rtl_library + ";"
+
             if os.path.exists(os.path.join(self.sim_dir, self.rtl_library)):
-                do_script = "vdel -lib {RTL_LIBRARY} -all".format(RTL_LIBRARY=as_tcl_value(self.rtl_library))
-                cmd.append(["vsim"] + ["-c"] + ["-do"] + [do_script])
+                cmd.append(cmd_prefix + [f"vdel -lib {self.rtl_library} -all"])
 
             if self.vhdl_sources:
-                do_script = "vlib {RTL_LIBRARY}; vcom -mixedsvvh -work {RTL_LIBRARY} {EXTRA_ARGS} {VHDL_SOURCES}; quit".format(
-                    RTL_LIBRARY=as_tcl_value(self.rtl_library),
-                    VHDL_SOURCES=" ".join(as_tcl_value(v) for v in self.vhdl_sources),
-                    EXTRA_ARGS=" ".join(as_tcl_value(v) for v in self.compile_args),
-                )
-                cmd.append(["vsim"] + ["-c"] + ["-do"] + [do_script])
+                cmd.append(cmd_prefix + add_args([
+                    "vcom -mixedsvvh -work",
+                    self.rtl_library,
+                    self.compile_args,
+                    self.vhdl_sources,
+                    '; quit;']))
 
             if self.verilog_sources:
-                do_script = "vlog -mixedsvvh -work {RTL_LIBRARY} +define+COCOTB_SIM -sv {DEFINES} {INCDIR} {EXTRA_ARGS} {VERILOG_SOURCES}; quit".format(
-                    RTL_LIBRARY=as_tcl_value(self.rtl_library),
-                    VERILOG_SOURCES=" ".join(as_tcl_value(v) for v in self.verilog_sources),
-                    DEFINES=" ".join(self.get_define_commands(self.defines)),
-                    INCDIR=" ".join(self.get_include_commands(self.includes)),
-                    EXTRA_ARGS=" ".join(as_tcl_value(v) for v in self.compile_args),
-                )
-                cmd.append(["vsim"] + ["-c"] + ["-do"] + [do_script])
+                cmd.append(cmd_prefix + [add_args([
+                    cmd_create_lib,
+                    "vlog -mixedsvvh -work",
+                    self.rtl_library,
+                    "+define+COCOTB_SIM -sv",
+                    self.get_define_commands(self.defines),
+                    self.get_include_commands(self.includes),
+                    self.compile_args,
+                    self.verilog_sources,
+                    '; quit;'])])
 
         else:
             self.logger.warning("Skipping compilation:" + out_file)
 
         if not self.compile_only:
-            if self.toplevel_lang == "vhdl":
-                do_script = "vsim -onfinish {ONFINISH} -foreign {EXT_NAME} {EXTRA_ARGS} {RTL_LIBRARY}.{TOPLEVEL};".format(
-                    ONFINISH="stop" if self.gui else "exit",
-                    RTL_LIBRARY=as_tcl_value(self.rtl_library),
-                    TOPLEVEL=as_tcl_value(self.toplevel),
-                    EXT_NAME=as_tcl_value(
-                        "cocotb_init {}".format(os.path.join(self.lib_dir, "libcocotbfli_modelsim." + self.lib_ext))
-                    ),
-                    EXTRA_ARGS=" ".join(as_tcl_value(v) for v in self.simulation_args),
-                )
 
+            # select python-to-hdl interface according to the top-level language
+            if self.toplevel_lang == "vhdl":
+                ext_name = "-foreign cocotb_init " \
+                    + as_tcl_value(str(Path(self.lib_dir) / f"libcocotbfli_modelsim.{self.lib_ext}"))
                 if self.verilog_sources:
                     self.env["GPI_EXTRA"] = "cocotbvpi_modelsim:cocotbvpi_entry_point"
-
             else:
-                do_script = "vsim -onfinish {ONFINISH} -pli {EXT_NAME} {EXTRA_ARGS} {RTL_LIBRARY}.{TOPLEVEL} {PLUS_ARGS};".format(
-                    ONFINISH="stop" if self.gui else "exit",
-                    RTL_LIBRARY=as_tcl_value(self.rtl_library),
-                    TOPLEVEL=as_tcl_value(self.toplevel),
-                    EXT_NAME=as_tcl_value(os.path.join(self.lib_dir, "libcocotbvpi_modelsim." + self.lib_ext)),
-                    EXTRA_ARGS=" ".join(as_tcl_value(v) for v in self.simulation_args),
-                    PLUS_ARGS=" ".join(as_tcl_value(v) for v in self.plus_args),
-                )
-
+                ext_name = "-pli " \
+                    + as_tcl_value(str(Path(self.lib_dir) / f"libcocotbvpi_modelsim.{self.lib_ext}"))
                 if self.vhdl_sources:
                     self.env["GPI_EXTRA"] = "cocotbfli_modelsim:cocotbfli_entry_point"
 
-            # do_script += "log -recursive /*;"
+            # compose the script
+            do_script = add_args([f"vsim -onfinish {'stop' if self.gui else 'exit'}",
+                                  ext_name,
+                                  self.simulation_args,
+                                  self.rtl_library + '.' + self.toplevel,
+                                  self.plus_args,
+                                  ';'])
 
             if not self.gui:
                 do_script += "run -all; quit"
