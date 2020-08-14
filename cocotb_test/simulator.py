@@ -8,7 +8,7 @@ import logging
 import shutil
 from xml.etree import cElementTree as ET
 import signal
-from typing import List, Union, Optional
+from typing import List, Union, Optional, Any
 from pathlib import Path
 
 from distutils.spawn import find_executable
@@ -71,6 +71,34 @@ def get_abs_paths(paths: Optional[List[Union[str, Path]]]) -> List[Union[str, Pa
 # ==============================================================================================================
 # simulators
 class Simulator():
+    """Simulator abstraction base class.
+
+    :param toplevel:
+    :param module:
+    :param work_dir:
+    :param python_search: list of paths to add to the ``PYTHONPATH`` OS variable.
+    :param toplevel_lang:
+    :param verilog_sources: list of file-paths to the Verilog/SystemVerilog sources
+    :param vhdl_sources: list of file-paths to the VHDL sources.
+    :param includes:
+    :param defines:
+    :param compile_args: additional compilation arguments.
+    :param simulation_args: additional simulation arguments.
+    :param extra_args: common additional arguments for compilation and simulation.
+    :param plus_args: additional arguments for the simulation command only.
+    :param force_compile:
+    :param testcase:
+    :param sim_build:
+    :param seed:
+    :param extra_env:
+    :param compile_only:
+    :param gui:
+
+    This class is intended to be extended to define the simulator-specific commands. A child class shall
+    implemented the :py:meth:`build_command`, :py:meth:`get_include_commands`, :py:meth:`get_define_commands`
+    methods.
+    """
+
     def __init__(self,
                  toplevel: str,
                  module: str,
@@ -79,16 +107,16 @@ class Simulator():
                  toplevel_lang: str = "verilog",
                  verilog_sources: Optional[List[Union[str, Path]]] = None,
                  vhdl_sources: Optional[List[Union[str, Path]]] = None,
-                 includes=None,
-                 defines=None,
-                 compile_args=None,
-                 simulation_args=None,
-                 extra_args=None,
-                 plus_args=None,
-                 force_compile=False,
+                 includes: Optional[List[Union[str, Path]]] = None,
+                 defines: Optional[List[str]] = None,
+                 compile_args: Optional[List[str]] = None,
+                 simulation_args: Optional[List[str]] = None,
+                 extra_args: Optional[List[str]] = None,
+                 plus_args: Optional[List[str]] = None,
+                 force_compile: bool = False,
                  testcase=None,
-                 sim_build="sim_build",
-                 seed=None,
+                 sim_build: str = "sim_build",
+                 seed: Optional[Any] = None,
                  extra_env=None,
                  compile_only=False,
                  gui=False,
