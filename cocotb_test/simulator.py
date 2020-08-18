@@ -457,8 +457,7 @@ class Questa(Simulator):
                                   ext_name,
                                   self.simulation_args,
                                   self.rtl_library + '.' + self.toplevel,
-                                  self.plus_args,
-                                  ';'])
+                                  self.plus_args])
 
             if not self.gui:
                 do_script += "run -all; quit"
