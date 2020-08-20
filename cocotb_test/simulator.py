@@ -102,7 +102,7 @@ class Simulator():
     def __init__(self,
                  toplevel: str,
                  module: str,
-                 work_dir: Union[None, str] = None,
+                 work_dir: Optional[Union[Path, str]] = None,
                  python_search: Optional[List[Union[str, Path]]] = None,
                  toplevel_lang: str = "verilog",
                  verilog_sources: Optional[List[Union[str, Path]]] = None,
@@ -122,77 +122,51 @@ class Simulator():
                  gui=False,
                  **kwargs):
 
-        self.sim_dir = os.path.join(os.getcwd(), sim_build)
-        if not os.path.exists(self.sim_dir):
-            os.makedirs(self.sim_dir)
+        # create the simulation folder
+        sim_dir = Path.cwd() / sim_build
+        sim_dir.mkdir(exist_ok=True)
+        self.sim_dir = str(sim_dir)
 
         self.logger = logging.getLogger("cocotb")
         self.logger.setLevel(logging.INFO)
         logging.basicConfig(format="%(levelname)s %(name)s: %(message)s")
 
-        self.lib_dir = os.path.join(os.path.dirname(cocotb.__file__), "libs")
+        self.lib_dir = str(Path(cocotb.__file__).parent / "libs")
 
-        self.lib_ext = "so"
-        if os.name == "nt":
-            self.lib_ext = "dll"
+        self.lib_ext = "dll" if os.name == "nt" else "so"
 
         self.module = module  # TODO: Auto discovery, try introspect ?
 
         self.work_dir = self.sim_dir
-
         if work_dir is not None:
-            absworkdir = os.path.abspath(work_dir)
-            if os.path.isdir(absworkdir):
-                self.work_dir = absworkdir
+            work_dir = Path(work_dir).absolute()
+            if work_dir.is_dir():
+                self.work_dir = str(work_dir)
 
-        if python_search is None:
-            python_search = []
-
-        self.python_search = python_search
+        self.python_search = [] if python_search is None else python_search
 
         self.toplevel = toplevel
         self.toplevel_lang = toplevel_lang
 
-        if verilog_sources is None:
-            verilog_sources = []
+        self.verilog_sources = [] if verilog_sources is None else get_abs_paths(verilog_sources)
+        self.vhdl_sources = [] if vhdl_sources is None else get_abs_paths(vhdl_sources)
 
-        self.verilog_sources = get_abs_paths(verilog_sources)
-
-        if vhdl_sources is None:
-            vhdl_sources = []
-
-        self.vhdl_sources = get_abs_paths(vhdl_sources)
-
-        if includes is None:
-            includes = []
-
-        self.includes = get_abs_paths(includes)
-
-        if defines is None:
-            defines = []
-
-        self.defines = defines
-
-        if compile_args is None:
-            compile_args = []
+        self.includes = [] if includes is None else get_abs_paths(includes)
+        self.defines = [] if defines is None else defines
 
         if extra_args is None:
             extra_args = []
 
-        self.compile_args = compile_args + extra_args
+        self.compile_args = [] if compile_args is None else compile_args
+        self.compile_args += extra_args
+        self.simulation_args = [] if simulation_args is None else simulation_args
+        self.simulation_args += extra_args
 
-        if simulation_args is None:
-            simulation_args = []
-
-        self.simulation_args = simulation_args + extra_args
-
-        if plus_args is None:
-            plus_args = []
-
-        self.plus_args = plus_args
+        self.plus_args = [] if plus_args is None else plus_args
         self.force_compile = force_compile
         self.compile_only = compile_only
 
+        # register the rest of the arguments
         for arg in kwargs:
             setattr(self, arg, kwargs[arg])
 
@@ -229,13 +203,12 @@ class Simulator():
         self.env["TOPLEVEL"] = self.toplevel
         self.env["MODULE"] = self.module
 
-        if not os.path.exists(self.sim_dir):
-            os.makedirs(self.sim_dir)
-
     def build_command(self):
         raise NotImplementedError()
 
     def run(self):
+        """Run the simulation and analyze the results.
+        """
 
         sys.tracebacklimit = 0  # remove not needed traceback from assert
 
@@ -272,7 +245,12 @@ class Simulator():
     def get_define_commands(self, defines):
         raise NotImplementedError()
 
-    def execute(self, cmds):
+    def execute(self, cmds: List[List[str]]) -> None:
+        """Set up the environment and execute the list of given arguments.
+
+        :param cmds: list of commands to run the simulation
+        """
+
         self.set_env()
         for cmd in cmds:
             self.logger.info("Running command: " + " ".join(cmd))
@@ -292,7 +270,6 @@ class Simulator():
 
             if self.process.returncode:
                 self.logger.error("Command terminated with error %d" % self.process.returncode)
-                return
 
     def outdated(self, output, dependencies):
 
