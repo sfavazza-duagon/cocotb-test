@@ -464,6 +464,11 @@ class Questa(Simulator):
 
             cmd.append(["vsim"] + (["-gui"] if self.gui else ["-c"]) + ["-do"] + [do_script])
 
+            # export the commands to an external script to ease user/simulator interaction
+            with open(Path(self.sim_dir) / 'runsim.do', 'w') as fscript:
+                for instruction in cmd:
+                    fscript.write(" ".join(instruction) + '\n')
+
         return cmd
 
 
