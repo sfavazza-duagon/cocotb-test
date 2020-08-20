@@ -377,44 +377,57 @@ class Questa(Simulator):
         return defines_cmd
 
     def build_command(self):
+        """Generate the compilation and simulation Modelsim commands.
+
+        These are exported to scripts to ease the interaction with the simulator while working in GUI mode.
+        """
 
         self.rtl_library = self.toplevel
 
-        cmd = []
+        cmds = []
 
         out_file = os.path.join(self.sim_dir, self.toplevel, "_info")
 
+        # ------------------------------------------------------------------------------------------------------
+        # compilation phase
         if self.outdated(out_file, self.verilog_sources + self.vhdl_sources) or self.force_compile:
 
-            cmd_prefix = ["vsim", "-c", "-do"]
-            cmd_create_lib = "vlib " + self.rtl_library + ";"
+            if (Path(self.sim_dir) / self.rtl_library).is_dir():
+                cmds.append([f"vdel -lib {self.rtl_library} -all; quit;"])
+            cmds.append([f"vlib {self.rtl_library}; quit;"])
 
-            if os.path.exists(os.path.join(self.sim_dir, self.rtl_library)):
-                cmd.append(cmd_prefix + [f"vdel -lib {self.rtl_library} -all"])
-
+            compile_cmds = []
             if self.vhdl_sources:
-                cmd.append(cmd_prefix + add_args([
-                    "vcom -mixedsvvh -work",
-                    self.rtl_library,
-                    self.compile_args,
-                    self.vhdl_sources,
-                    '; quit;']))
+                compile_cmds.append(add_args(["vcom -mixedsvvh -work",
+                                              self.rtl_library,
+                                              self.compile_args,
+                                              self.vhdl_sources]))
 
+            compile_verilog_cmd = ''
             if self.verilog_sources:
-                cmd.append(cmd_prefix + [add_args([
-                    cmd_create_lib,
-                    "vlog -mixedsvvh -work",
-                    self.rtl_library,
-                    "+define+COCOTB_SIM -sv",
-                    self.get_define_commands(self.defines),
-                    self.get_include_commands(self.includes),
-                    self.compile_args,
-                    self.verilog_sources,
-                    '; quit;'])])
+                compile_cmds.append(add_args(["vlog -mixedsvvh -work",
+                                              self.rtl_library,
+                                              "+define+COCOTB_SIM -sv",
+                                              self.get_define_commands(self.defines),
+                                              self.get_include_commands(self.includes),
+                                              self.compile_args,
+                                              self.verilog_sources]))
 
+            # export the commands to compile the sources to ease user/simulator interaction
+            compile_filename = Path(self.sim_dir) / 'compile.do'
+            with open(compile_filename, 'w') as fscript:
+                for compile_cmd in compile_cmds:
+                    fscript.write(compile_cmd + '\n')
+                cmds.append([f"source {compile_filename.as_posix()}; quit;"])
+
+            # add the command prefix to all commands
+            for idx, cmd in enumerate(cmds):
+                cmds[idx] = ["vsim", "-c", "-do"] + cmd
         else:
             self.logger.warning("Skipping compilation:" + out_file)
 
+        # ------------------------------------------------------------------------------------------------------
+        # simulation phase
         if not self.compile_only:
 
             # select python-to-hdl interface according to the top-level language
@@ -439,14 +452,15 @@ class Questa(Simulator):
             if not self.gui:
                 do_script += "run -all; quit"
 
-            cmd.append(["vsim"] + (["-gui"] if self.gui else ["-c"]) + ["-do"] + [do_script])
+            # export the commands to run the simulation to ease user/simulator interaction
+            run_filename = Path(self.sim_dir) / 'runsim.do'
+            with open(run_filename, 'w') as fscript:
+                fscript.write(do_script)
 
-            # export the commands to an external script to ease user/simulator interaction
-            with open(Path(self.sim_dir) / 'runsim.do', 'w') as fscript:
-                for instruction in cmd:
-                    fscript.write(" ".join(instruction) + '\n')
+            cmds.append(["vsim"] + (["-gui"] if self.gui else ["-c"]) + ["-do"] \
+                        + [f"source {run_filename.as_posix()}"])
 
-        return cmd
+        return cmds
 
 
 class Ius(Simulator):
