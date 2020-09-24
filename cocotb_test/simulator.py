@@ -83,10 +83,10 @@ class Simulator():
     :param includes:
     :param defines:
     :param compile_args: additional compilation arguments.
-    :param simulation_args: additional simulation arguments.
+    :param simulation_args: additional simulation arguments right after the default simulation arguments.
     :param extra_args: common additional arguments for compilation and simulation.
-    :param plus_args: additional arguments for the simulation command only.
-    :param force_compile:
+    :param plus_args: additional arguments appended at the end of the simulation arguments.
+    :param force_compile: force source re-compilation regardless of the file modification timestamp.
     :param testcase:
     :param sim_build:
     :param seed:
