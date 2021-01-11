@@ -400,14 +400,14 @@ class Questa(Simulator):
             if self.vhdl_sources:
                 compile_cmds.append(add_args(["vcom -mixedsvvh -work",
                                               self.rtl_library,
+                                              "-mfcu",
                                               self.compile_args,
                                               self.vhdl_sources]))
 
-            compile_verilog_cmd = ''
             if self.verilog_sources:
                 compile_cmds.append(add_args(["vlog -mixedsvvh -work",
                                               self.rtl_library,
-                                              "+define+COCOTB_SIM -sv",
+                                              "+define+COCOTB_SIM -sv -mfcu",
                                               self.get_define_commands(self.defines),
                                               self.get_include_commands(self.includes),
                                               self.compile_args,
