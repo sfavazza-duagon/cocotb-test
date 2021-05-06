@@ -400,7 +400,6 @@ class Questa(Simulator):
             if self.vhdl_sources:
                 compile_cmds.append(add_args(["vcom -mixedsvvh -work",
                                               self.rtl_library,
-                                              "-mfcu",
                                               self.compile_args,
                                               self.vhdl_sources]))
 
